@@ -1,0 +1,209 @@
+name: Reusable Qlik Production Promotion
+
+on:
+  workflow_call:
+    inputs:
+      operation:
+        description: readiness or deploy
+        required: true
+        type: string
+      jira_key:
+        description: Jira ticket key and branch identity, for example BIOPS-64108
+        required: true
+        type: string
+      artifact_repo_full_name:
+        description: Qlik-space artifact repository, for example ORG-NAME/Accounts-Receivable
+        required: true
+        type: string
+      artifact_ref:
+        description: Ref or commit SHA to check out from the artifact repository
+        required: true
+        type: string
+      source_branch:
+        description: Original Jira branch containing the signed-off package
+        required: true
+        type: string
+      source_sha:
+        description: Source branch SHA from the signed-off PR
+        required: true
+        type: string
+      main_sha:
+        description: Main branch or merge commit SHA used as production source of truth
+        required: true
+        type: string
+      prod_space_name:
+        description: Optional explicit Qlik Production space name
+        required: false
+        default: ""
+        type: string
+      automation_repo_full_name:
+        description: Central workflow repository containing the scripts
+        required: true
+        type: string
+      automation_ref:
+        description: Central workflow repo ref that matches this reusable workflow version
+        required: true
+        type: string
+      environment_name:
+        description: GitHub environment used for the deploy job gate
+        required: false
+        default: production
+        type: string
+      dry_run:
+        description: Validate without writing to Qlik, Snowflake, or Jira
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      QLIK_PROD_TENANT_URL:
+        required: false
+      QLIK_PROD_API_KEY:
+        required: false
+      SNOWFLAKE_ACCOUNT:
+        required: false
+      SNOWFLAKE_USER:
+        required: false
+      SNOWFLAKE_PRIVATE_KEY:
+        required: false
+      SNOWFLAKE_WAREHOUSE:
+        required: false
+      SNOWFLAKE_DATABASE:
+        required: false
+      SNOWFLAKE_SCHEMA:
+        required: false
+      JIRA_BASE_URL:
+        required: false
+      JIRA_EMAIL:
+        required: false
+      JIRA_API_TOKEN:
+        required: false
+      WORKFLOW_REPO_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  readiness:
+    name: Readiness validation
+    if: inputs.operation == 'readiness'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate promotion identity
+        shell: bash
+        run: |
+          if [[ ! "${{ inputs.jira_key }}" =~ ^[A-Z]+-[0-9]+$ ]]; then
+            echo "Jira key must look like BIOPS-64108."
+            exit 1
+          fi
+          if [[ "${{ inputs.jira_key }}" != "${{ inputs.source_branch }}" ]]; then
+            echo "The source branch must match the Jira key."
+            exit 1
+          fi
+
+      - name: Readiness summary
+        shell: bash
+        run: |
+          echo "Approved PR is ready for merge gate."
+          echo "Jira key: ${{ inputs.jira_key }}"
+          echo "Artifact repo: ${{ inputs.artifact_repo_full_name }}"
+          echo "Artifact ref: ${{ inputs.artifact_ref }}"
+          echo "Source branch: ${{ inputs.source_branch }}"
+          echo "Source SHA: ${{ inputs.source_sha }}"
+          echo "Main SHA: ${{ inputs.main_sha }}"
+
+  deploy:
+    name: Production deployment
+    if: inputs.operation == 'deploy'
+    runs-on: windows-latest
+    environment: ${{ inputs.environment_name }}
+    steps:
+      - name: Validate promotion identity
+        shell: pwsh
+        run: |
+          if ("${{ inputs.jira_key }}" -notmatch '^[A-Z]+-[0-9]+$') {
+            throw "Jira key must look like BIOPS-64108."
+          }
+          if ("${{ inputs.jira_key }}" -ne "${{ inputs.source_branch }}") {
+            throw "The source branch must match the Jira key."
+          }
+
+      - name: Checkout Qlik artifact repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.artifact_repo_full_name }}
+          ref: ${{ inputs.artifact_ref }}
+          path: artifact
+
+      - name: Checkout central workflow scripts
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.automation_repo_full_name }}
+          ref: ${{ inputs.automation_ref }}
+          path: automation
+          token: ${{ secrets.WORKFLOW_REPO_TOKEN || github.token }}
+
+      - name: Deploy to Qlik Production tenant
+        shell: pwsh
+        working-directory: artifact
+        env:
+          QLIK_PROD_TENANT_URL: ${{ secrets.QLIK_PROD_TENANT_URL }}
+          QLIK_PROD_API_KEY: ${{ secrets.QLIK_PROD_API_KEY }}
+        run: |
+          $dryRun = [System.Convert]::ToBoolean("${{ inputs.dry_run }}")
+          ../automation/scripts/Invoke-QlikProdPromotion.ps1 `
+            -JiraKey "${{ inputs.jira_key }}" `
+            -RepoFullName "${{ inputs.artifact_repo_full_name }}" `
+            -SourceBranch "${{ inputs.source_branch }}" `
+            -SourceSha "${{ inputs.source_sha }}" `
+            -MainSha "${{ inputs.main_sha }}" `
+            -ProdSpaceName "${{ inputs.prod_space_name }}" `
+            -DryRun $dryRun
+
+      - name: Update Snowflake deployment log
+        if: always()
+        shell: pwsh
+        working-directory: artifact
+        env:
+          SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER: ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+          SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_DATABASE: ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_SCHEMA: ${{ secrets.SNOWFLAKE_SCHEMA }}
+        run: |
+          $dryRun = [System.Convert]::ToBoolean("${{ inputs.dry_run }}")
+          ../automation/scripts/Update-DeploymentChangeLog.ps1 `
+            -JiraKey "${{ inputs.jira_key }}" `
+            -RepoFullName "${{ inputs.artifact_repo_full_name }}" `
+            -SourceBranch "${{ inputs.source_branch }}" `
+            -SourceSha "${{ inputs.source_sha }}" `
+            -MainSha "${{ inputs.main_sha }}" `
+            -ProdSpaceName "${{ inputs.prod_space_name }}" `
+            -Status "${{ job.status }}" `
+            -DryRun $dryRun
+
+      - name: Add Jira promotion comment
+        if: always()
+        shell: pwsh
+        working-directory: artifact
+        env:
+          JIRA_BASE_URL: ${{ secrets.JIRA_BASE_URL }}
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          RUN_URL: https://github.com/${{ inputs.artifact_repo_full_name }}/actions/runs/${{ github.run_id }}
+        run: |
+          $dryRun = [System.Convert]::ToBoolean("${{ inputs.dry_run }}")
+          ../automation/scripts/Add-JiraPromotionComment.ps1 `
+            -JiraKey "${{ inputs.jira_key }}" `
+            -RepoFullName "${{ inputs.artifact_repo_full_name }}" `
+            -SourceBranch "${{ inputs.source_branch }}" `
+            -SourceSha "${{ inputs.source_sha }}" `
+            -MainSha "${{ inputs.main_sha }}" `
+            -ProdSpaceName "${{ inputs.prod_space_name }}" `
+            -Status "${{ job.status }}" `
+            -RunUrl $env:RUN_URL `
+            -DryRun $dryRun
+
