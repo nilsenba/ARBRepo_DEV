@@ -35,7 +35,7 @@ permissions:
 jobs:
   deploy-production:
     name: Call central Qlik production workflow
-    uses: YOUR-ORG/qlik-prod-promotion-workflows/.github/workflows/reusable-qlik-prod-promotion.yml@v1
+    uses: NilsenBA/ARBRepo_Central/qlik-prod-promotion-workflows/.github/workflows/reusable-qlik-prod-promotion.yml@v1
     with:
       operation: deploy
       jira_key: ${{ github.event_name == 'workflow_dispatch' && inputs.jira_key || github.event.pull_request.head.ref }}
@@ -45,7 +45,7 @@ jobs:
       source_sha: ${{ github.event_name == 'workflow_dispatch' && inputs.artifact_ref || github.event.pull_request.head.sha }}
       main_sha: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.pull_request.merge_commit_sha }}
       prod_space_name: ${{ vars.QLIK_PROD_SPACE_NAME }}
-      automation_repo_full_name: YOUR-ORG/qlik-prod-promotion-workflows
+      automation_repo_full_name: NilsenBA/ARBRepo_Central/qlik-prod-promotion-workflows
       automation_ref: v1
       environment_name: production
       dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
