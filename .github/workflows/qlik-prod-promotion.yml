@@ -1,0 +1,52 @@
+name: Qlik Production Promotion
+
+on:
+  pull_request_review:
+    types: [submitted]
+  pull_request:
+    branches: [main]
+    types: [closed]
+  workflow_dispatch:
+    inputs:
+      jira_key:
+        description: Jira ticket key, for example BIOPS-64108
+        required: true
+        type: string
+      source_branch:
+        description: Jira branch containing the signed-off UAT package
+        required: true
+        type: string
+      artifact_ref:
+        description: Git ref or commit SHA to deploy for manual testing
+        required: true
+        default: main
+        type: string
+      dry_run:
+        description: Validate without writing to Qlik, Snowflake, or Jira
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  pull-requests: read
+  issues: write
+
+jobs:
+  deploy-production:
+    name: Call central Qlik production workflow
+    uses: NilsenBA/qlik-prod-promotion-workflows/.github/workflows/reusable-qlik-prod-promotion.yml@v1
+    with:
+      operation: deploy
+      jira_key: ${{ github.event_name == 'workflow_dispatch' && inputs.jira_key || github.event.pull_request.head.ref }}
+      artifact_repo_full_name: ${{ github.repository }}
+      artifact_ref: ${{ github.event_name == 'workflow_dispatch' && inputs.artifact_ref || github.event.pull_request.merge_commit_sha }}
+      source_branch: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || github.event.pull_request.head.ref }}
+      source_sha: ${{ github.event_name == 'workflow_dispatch' && inputs.artifact_ref || github.event.pull_request.head.sha }}
+      main_sha: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.pull_request.merge_commit_sha }}
+      prod_space_name: ${{ vars.QLIK_PROD_SPACE_NAME }}
+      automation_repo_full_name: NilsenBA/qlik-prod-promotion-workflows
+      automation_ref: v1
+      environment_name: production
+      dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
+    secrets: inherit
