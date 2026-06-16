@@ -35,7 +35,7 @@ permissions:
 jobs:
   deploy-production:
     name: Call central Qlik production workflow
-    uses: NilsenBA/ARBRepo_Central/qlik-prod-promotion-workflows/.github/workflows/reusable-qlik-prod-promotion.yml@main
+    uses: NilsenBA/ARBRepo_Central/.github/workflows/reusable-qlik-prod-promotion.yml@main
     with:
       operation: deploy
       jira_key: ${{ github.event_name == 'workflow_dispatch' && inputs.jira_key || github.event.pull_request.head.ref }}
