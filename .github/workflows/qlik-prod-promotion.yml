@@ -44,9 +44,5 @@ jobs:
       source_branch: ${{ github.event_name == 'workflow_dispatch' && inputs.source_branch || github.event.pull_request.head.ref }}
       source_sha: ${{ github.event_name == 'workflow_dispatch' && inputs.artifact_ref || github.event.pull_request.head.sha }}
       main_sha: ${{ github.event_name == 'workflow_dispatch' && github.sha || github.event.pull_request.merge_commit_sha }}
-      prod_space_name: ${{ vars.QLIK_PROD_SPACE_NAME }}
-      automation_repo_full_name: NilsenBA/ARBRepo_Central/qlik-prod-promotion-workflows
-      automation_ref: v1
-      environment_name: production
       dry_run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || false }}
     secrets: inherit
